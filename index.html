@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AR Simulator v1.5 - Raw Audio</title>
+    <title>AR Simulator v1.6 - Justerbar Ljudgräns</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; cursor: none; }
         :fullscreen, ::backdrop { background-color: #000; }
@@ -35,8 +35,11 @@
         #vu-meter { width: 100%; height: 12px; background: #333; border-radius: 6px; margin: 5px 0; overflow: hidden; }
         #vu-bar { width: 0%; height: 100%; background: lime; transition: width 0.05s; }
 
-        #controls { position: absolute; bottom: 10px; right: 10px; z-index: 100; display: none; flex-direction: column; }
-        .ctrl-btn { width: 150px; padding: 10px; font-size: 12px; background: #333; color: white; margin-top: 5px; cursor: pointer; }
+        #controls { 
+            position: absolute; bottom: 10px; right: 10px; z-index: 100; display: none; 
+            flex-direction: column; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 10px; color: white;
+        }
+        .ctrl-btn { width: 100%; padding: 10px; font-size: 12px; background: #333; color: white; margin-top: 5px; cursor: pointer; border: none; border-radius: 5px; }
         
         #flash { position: absolute; width: 100%; height: 100%; background: #fff; opacity: 0; z-index: 200; pointer-events: none; }
     </style>
@@ -44,8 +47,8 @@
 <body>
 
 <div id="debug-panel">
-    <div style="font-weight:bold; margin-bottom:5px;">AR SIM v1.5</div>
-    Aktiv Volym: <span id="vol-text">0</span>
+    <div style="font-weight:bold; margin-bottom:5px;">AR SIM v1.6</div>
+    Ljudnivå (Max 255): <span id="vol-text">0</span>
     <div id="vu-meter"><div id="vu-bar"></div></div>
     <div id="status-log">Väntar på start...</div>
 </div>
@@ -60,6 +63,9 @@
 </div>
 
 <div id="controls">
+    <label style="font-size: 12px; margin-bottom: 5px;">Avtryckare Känslighet:</label>
+    <input type="range" id="audioThresh" min="50" max="250" value="150" style="width: 100%; margin-bottom: 10px;">
+    
     <button class="ctrl-btn" onclick="calibrate()">KALIBRERA SIKTE</button>
     <button class="ctrl-btn" onclick="goBack()" style="background:#c0392b;">BYT BANA</button>
 </div>
@@ -91,6 +97,7 @@
     const vuBar = document.getElementById('vu-bar');
     const statusLog = document.getElementById('status-log');
     const volText = document.getElementById('vol-text');
+    const threshSlider = document.getElementById('audioThresh');
 
     const scenarios = {
         office: { t: FILER.office_hot, f: FILER.office_fall, s: 4.0 },
@@ -135,7 +142,6 @@
     }
 
     function setupAudio() {
-        // Tvinga telefonen att stänga av sina brusfilter!
         const constraints = {
             audio: {
                 echoCancellation: false,
@@ -151,24 +157,26 @@
             src.connect(analyser);
             dataArray = new Uint8Array(analyser.frequencyBinCount);
             
-            statusLog.innerText = "Ljud redo. Säg pang!";
+            statusLog.innerText = "Ljud redo. Prata för att testa.";
             
             const check = () => {
                 if (!audioCtx || hasShot) return;
                 analyser.getByteFrequencyData(dataArray);
                 
-                // Räkna ut snittvolymen istället för högsta toppen för att kringgå statiska fel
-                let sum = 0;
-                for(let i = 0; i < dataArray.length; i++) {
-                    sum += dataArray[i];
-                }
-                let avgVol = Math.round(sum / dataArray.length);
+                // Hitta den högsta ljudtoppen (bäst för skarpa klick)
+                let vol = Math.max(...dataArray);
+                let thresh = parseInt(threshSlider.value); // Hämta värdet från din slider
                 
-                volText.innerText = avgVol;
-                vuBar.style.width = (avgVol / 100) * 100 + "%";
+                volText.innerText = vol;
+                vuBar.style.width = (vol / 255) * 100 + "%";
 
-                // Om snittvolymen gör ett plötsligt hopp
-                if (avgVol > 30) fire(); 
+                // Markera baren röd om vi är över gränsen
+                if (vol > thresh) {
+                    vuBar.style.background = "red";
+                    fire(); 
+                } else {
+                    vuBar.style.background = "lime";
+                }
                 
                 requestAnimationFrame(check);
             };
@@ -180,7 +188,6 @@
     }
 
     function handleGyro(e) {
-        // Omvänd hantering för att stabilisera Android Landscape
         curGyro.x = e.beta; 
         curGyro.y = e.gamma; 
         updateSight();
@@ -188,9 +195,7 @@
 
     function updateSight() {
         if (hasShot) return;
-        
         let dx = (curGyro.x - offset.x) * sensitivity;
-        // Invertera Y-axeln om siktet rör sig spegelvänt upp/ner
         let dy = (curGyro.y - offset.y) * sensitivity; 
         
         let posX = (window.innerWidth / 2) + dx;
@@ -233,6 +238,17 @@
             vFall.currentTime = scenarios[document.getElementById('levelSelect').value].s;
             vFall.play();
             statusLog.innerText = "TRÄFF!";
+            statusLog.style.color = "lime";
+        } else {
+            statusLog.innerText = "BOM! (Laddar om...)";
+            statusLog.style.color = "orange";
+            setTimeout(() => { hasShot = false; statusLog.innerText = "Redo."; statusLog.style.color="lime"; }, 1500);
+        }
+    }
+</script>
+</body>
+</html>
+"TRÄFF!";
             statusLog.style.color = "lime";
         } else {
             statusLog.innerText = "BOM! (Laddar om...)";
