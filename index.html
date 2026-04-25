@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AR Simulator v1.3 - Deep Fixes</title>
+    <title>AR Simulator v1.4 - Audio Override</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; cursor: none; }
         :fullscreen, ::backdrop { background-color: #000; }
@@ -42,7 +42,6 @@
         
         #flash { position: absolute; width: 100%; height: 100%; background: #fff; opacity: 0; z-index: 200; pointer-events: none; }
         
-        /* Felmeddelande för video */
         #error-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(200,0,0,0.9); color: white; z-index: 500; display: none;
@@ -59,7 +58,7 @@
 </div>
 
 <div id="debug-panel">
-    <div style="font-weight:bold; margin-bottom:5px;">AR SIM v1.3</div>
+    <div style="font-weight:bold; margin-bottom:5px;">AR SIM v1.4</div>
     Mikrofon-nivå: <span id="vol-text">0</span>
     <div id="vu-meter"><div id="vu-bar"></div></div>
     <div id="status-log">Väntar på start...</div>
@@ -118,45 +117,79 @@
     let audioCtx, analyser, dataArray;
     let sensitivity = 20; 
 
-    // Felhantering för video
     vThreat.onerror = function() {
         document.getElementById('error-screen').style.display = 'flex';
-        document.getElementById('error-text').innerText = "Kunde inte ladda filen:\n" + vThreat.src + "\n\nKontrollera att den ligger på din GitHub med EXAKT detta namn.";
+        document.getElementById('error-text').innerText = "Kunde inte ladda filen:\n" + vThreat.src;
     };
 
+    // =========================================================
+    // HUVUDFUNKTION: MÅSTE KÖRAS DIREKT PÅ KLICKET
+    // =========================================================
     async function initSimulator() {
-        // --- 1. TVINGA AUDIO DIREKT PÅ KLICKET (Apple Fix) ---
+        // 1. Tvinga igång ljudmotorn direkt, synkront!
         const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if(!audioCtx) audioCtx = new AudioContext();
-        if(audioCtx.state === 'suspended') audioCtx.resume();
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+        }
+        audioCtx.resume(); // Tvinga igång den
+        
+        // 2. Fråga om mikrofon DIREKT
+        setupAudio();
 
-        // --- 2. Helskärm ---
+        // 3. Helskärm
         try {
             if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
             else if (document.documentElement.webkitRequestFullscreen) document.documentElement.webkitRequestFullscreen();
         } catch(e) {}
 
-        // --- 3. Ladda Scenario ---
+        // 4. Ladda Scenario
         const sc = scenarios[document.getElementById('levelSelect').value];
         vThreat.src = sc.t;
         vFall.src = sc.f;
-        
         vThreat.play().catch(() => statusLog.innerText = "Tryck på skärmen för att spela video!");
 
-        // --- 4. Gyro ---
+        // 5. Gyro (Görs sist eftersom iOS pausar koden här för att fråga om lov)
         if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-            const resp = await DeviceOrientationEvent.requestPermission();
-            if (resp === 'granted') window.addEventListener('deviceorientation', handleGyro);
+            try {
+                const resp = await DeviceOrientationEvent.requestPermission();
+                if (resp === 'granted') window.addEventListener('deviceorientation', handleGyro);
+            } catch(e) {}
         } else {
             window.addEventListener('deviceorientation', handleGyro);
         }
 
-        // --- 5. Starta Mic-lyssning ---
-        setupAudio();
-
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('controls').style.display = 'flex';
         sight.style.display = 'block';
+    }
+
+    function setupAudio() {
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            const src = audioCtx.createMediaStreamSource(stream);
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 512;
+            src.connect(analyser);
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            statusLog.innerText = "Ljud redo. Säg pang!";
+            statusLog.style.color = "lime";
+            
+            const check = () => {
+                if (!audioCtx || hasShot) return;
+                analyser.getByteFrequencyData(dataArray);
+                let vol = Math.max(...dataArray);
+                
+                volText.innerText = vol;
+                vuBar.style.width = (vol / 255) * 100 + "%";
+
+                if (vol > 60) fire(); 
+                requestAnimationFrame(check);
+            };
+            check();
+        }).catch(err => {
+            statusLog.innerText = "Nekad! Ladda om och tillåt mic.";
+            statusLog.style.color = "red";
+        });
     }
 
     function handleGyro(e) {
@@ -191,35 +224,6 @@
         document.getElementById('controls').style.display = 'none';
         document.getElementById('overlay').style.display = 'flex';
         statusLog.innerText = "Väntar på start...";
-    }
-
-    function setupAudio() {
-        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-            const src = audioCtx.createMediaStreamSource(stream);
-            analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 512; // Högre upplösning
-            src.connect(analyser);
-            dataArray = new Uint8Array(analyser.frequencyBinCount);
-            
-            statusLog.innerText = "Ljud redo. Säg pang!";
-            
-            const check = () => {
-                if (!audioCtx || hasShot) return;
-                analyser.getByteFrequencyData(dataArray);
-                let vol = Math.max(...dataArray);
-                
-                volText.innerText = vol;
-                vuBar.style.width = (vol / 255) * 100 + "%";
-
-                // Om volymen går över 60
-                if (vol > 60) fire(); 
-                requestAnimationFrame(check);
-            };
-            check();
-        }).catch(err => {
-            statusLog.innerText = "Ingen mikrofon åtkomst!";
-            statusLog.style.color = "red";
-        });
     }
 
     function fire() {
