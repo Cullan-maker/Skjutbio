@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AR Simulator v1.2 - Landscape & Audio Fix</title>
+    <title>AR Simulator v1.3 - Deep Fixes</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; cursor: none; }
         :fullscreen, ::backdrop { background-color: #000; }
@@ -35,27 +35,38 @@
             background: rgba(0,0,0,0.85); z-index: 400; padding: 10px; border-radius: 10px; color: lime; font-size: 11px; pointer-events: none;
         }
         #vu-meter { width: 100%; height: 12px; background: #333; border-radius: 6px; margin: 5px 0; overflow: hidden; }
-        #vu-bar { width: 0%; height: 100%; background: lime; }
+        #vu-bar { width: 0%; height: 100%; background: lime; transition: width 0.05s; }
 
-        /* Kontroller */
-        #controls { position: absolute; bottom: 10px; right: 10px; z-index: 100; display: none; display: flex; flex-direction: column; }
+        #controls { position: absolute; bottom: 10px; right: 10px; z-index: 100; display: none; flex-direction: column; }
         .ctrl-btn { width: 150px; padding: 10px; font-size: 12px; background: #333; color: white; margin-top: 5px; cursor: pointer; }
         
         #flash { position: absolute; width: 100%; height: 100%; background: #fff; opacity: 0; z-index: 200; pointer-events: none; }
+        
+        /* Felmeddelande för video */
+        #error-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(200,0,0,0.9); color: white; z-index: 500; display: none;
+            flex-direction: column; justify-content: center; align-items: center; padding: 20px; text-align: center;
+        }
     </style>
 </head>
 <body>
 
+<div id="error-screen">
+    <h2>VIDEON SAKNAS!</h2>
+    <p id="error-text"></p>
+    <button onclick="location.reload()" style="background:white; color:red;">Ladda om</button>
+</div>
+
 <div id="debug-panel">
-    <div style="font-weight:bold; margin-bottom:5px;">AR SIM v1.2</div>
-    Ljudnivå (Pang!):
+    <div style="font-weight:bold; margin-bottom:5px;">AR SIM v1.3</div>
+    Mikrofon-nivå: <span id="vol-text">0</span>
     <div id="vu-meter"><div id="vu-bar"></div></div>
     <div id="status-log">Väntar på start...</div>
 </div>
 
 <div id="overlay">
     <h2>GLOCK AR SIMULATOR</h2>
-    <p>Håll mobilen LIGGANDE innan du startar</p>
     <select id="levelSelect">
         <option value="office">Scenario: Kontoret</option>
         <option value="burglar">Scenario: Inbrottet</option>
@@ -63,9 +74,9 @@
     <button class="start-btn" onclick="initSimulator()">STARTA SIMULATOR</button>
 </div>
 
-<div id="controls" id="gameControls">
+<div id="controls">
     <button class="ctrl-btn" onclick="calibrate()">KALIBRERA SIKTE</button>
-    <button class="ctrl-btn" onclick="goBack()" style="background:#c0392b;">TILLBAKA TILL MENY</button>
+    <button class="ctrl-btn" onclick="goBack()" style="background:#c0392b;">BYT BANA</button>
 </div>
 
 <div id="flash"></div>
@@ -82,7 +93,6 @@
 </div>
 
 <script>
-    // FILNAMN FRÅN GEMINI
     const FILER = {
         office_hot: "gemini_generated_video_0d52a464.mp4",
         office_fall: "gemini_generated_video_160ee669.mp4",
@@ -95,7 +105,7 @@
     const sight = document.getElementById('sight-group');
     const vuBar = document.getElementById('vu-bar');
     const statusLog = document.getElementById('status-log');
-    const controls = document.getElementById('controls');
+    const volText = document.getElementById('vol-text');
 
     const scenarios = {
         office: { t: FILER.office_hot, f: FILER.office_fall, s: 4.0 },
@@ -106,24 +116,34 @@
     let offset = { x: 0, y: 0 };
     let curGyro = { beta: 0, gamma: 0 };
     let audioCtx, analyser, dataArray;
-    let sensitivity = 20; // Lite högre för bättre känsla
-    let peakVol = 0;
+    let sensitivity = 20; 
+
+    // Felhantering för video
+    vThreat.onerror = function() {
+        document.getElementById('error-screen').style.display = 'flex';
+        document.getElementById('error-text').innerText = "Kunde inte ladda filen:\n" + vThreat.src + "\n\nKontrollera att den ligger på din GitHub med EXAKT detta namn.";
+    };
 
     async function initSimulator() {
+        // --- 1. TVINGA AUDIO DIREKT PÅ KLICKET (Apple Fix) ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if(!audioCtx) audioCtx = new AudioContext();
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+
+        // --- 2. Helskärm ---
         try {
-            const elem = document.documentElement;
-            if (elem.requestFullscreen) elem.requestFullscreen();
-            else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+            if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+            else if (document.documentElement.webkitRequestFullscreen) document.documentElement.webkitRequestFullscreen();
         } catch(e) {}
 
+        // --- 3. Ladda Scenario ---
         const sc = scenarios[document.getElementById('levelSelect').value];
         vThreat.src = sc.t;
         vFall.src = sc.f;
-        vThreat.load(); vFall.load();
         
-        vThreat.play().catch(() => statusLog.innerText = "FEL: Kunde inte ladda video.");
+        vThreat.play().catch(() => statusLog.innerText = "Tryck på skärmen för att spela video!");
 
-        // Gyro-begäran
+        // --- 4. Gyro ---
         if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
             const resp = await DeviceOrientationEvent.requestPermission();
             if (resp === 'granted') window.addEventListener('deviceorientation', handleGyro);
@@ -131,16 +151,15 @@
             window.addEventListener('deviceorientation', handleGyro);
         }
 
+        // --- 5. Starta Mic-lyssning ---
         setupAudio();
+
         document.getElementById('overlay').style.display = 'none';
-        controls.style.display = 'flex';
+        document.getElementById('controls').style.display = 'flex';
         sight.style.display = 'block';
     }
 
     function handleGyro(e) {
-        // I LANDSKAPSLÄGE: 
-        // Beta styr horisontellt (vridning på pistolen sida till sida)
-        // Gamma styr vertikalt (vinkling upp och ner)
         curGyro.x = e.beta; 
         curGyro.y = e.gamma; 
         updateSight();
@@ -148,15 +167,10 @@
 
     function updateSight() {
         if (hasShot) return;
-        
-        // Logik för liggande läge (Landscape)
-        // Vi använder beta för X och gamma för Y
         let dx = (curGyro.x - offset.x) * sensitivity;
         let dy = (curGyro.y - offset.y) * sensitivity;
-
         let posX = (window.innerWidth / 2) + dx;
         let posY = (window.innerHeight / 2) + dy;
-
         sight.style.left = posX + 'px';
         sight.style.top = posY + 'px';
         window.lastPos = { x: posX, y: posY };
@@ -165,48 +179,47 @@
     function calibrate() {
         offset.x = curGyro.x;
         offset.y = curGyro.y;
-        if(audioCtx) audioCtx.resume();
+        if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         statusLog.innerText = "Sikte nollställt!";
     }
 
     function goBack() {
         hasShot = false;
-        vThreat.pause();
-        vFall.pause();
+        vThreat.pause(); vFall.pause();
         vFall.classList.remove('active');
         sight.style.display = 'none';
-        controls.style.display = 'none';
+        document.getElementById('controls').style.display = 'none';
         document.getElementById('overlay').style.display = 'flex';
-        statusLog.innerText = "Tillbaka i menyn.";
-        if(audioCtx) audioCtx.close();
-        audioCtx = null;
+        statusLog.innerText = "Väntar på start...";
     }
 
     function setupAudio() {
         navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            analyser = audioCtx.createAnalyser();
             const src = audioCtx.createMediaStreamSource(stream);
-            analyser.fftSize = 256;
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 512; // Högre upplösning
             src.connect(analyser);
             dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            statusLog.innerText = "Ljud redo. Säg pang!";
             
             const check = () => {
                 if (!audioCtx || hasShot) return;
                 analyser.getByteFrequencyData(dataArray);
                 let vol = Math.max(...dataArray);
                 
-                // VU-Mätare
+                volText.innerText = vol;
                 vuBar.style.width = (vol / 255) * 100 + "%";
-                if (vol > peakVol) peakVol = vol;
-                statusLog.innerText = "Topp-volym: " + peakVol;
 
-                // Mycket lägre threshold (50) för att fånga upp "pang"
-                if (vol > 55) fire(); 
+                // Om volymen går över 60
+                if (vol > 60) fire(); 
                 requestAnimationFrame(check);
             };
             check();
-        }).catch(() => statusLog.innerText = "Mic-fel: Kolla behörighet.");
+        }).catch(err => {
+            statusLog.innerText = "Ingen mikrofon åtkomst!";
+            statusLog.style.color = "red";
+        });
     }
 
     function fire() {
@@ -225,9 +238,11 @@
             vFall.currentTime = scenarios[document.getElementById('levelSelect').value].s;
             vFall.play();
             statusLog.innerText = "TRÄFF!";
+            statusLog.style.color = "lime";
         } else {
-            statusLog.innerText = "BOM! Skjut igen...";
-            setTimeout(() => { hasShot = false; peakVol = 0; }, 1000);
+            statusLog.innerText = "BOM! (Laddar om...)";
+            statusLog.style.color = "orange";
+            setTimeout(() => { hasShot = false; statusLog.innerText = "Säg pang!"; statusLog.style.color="lime"; }, 1500);
         }
     }
 </script>
