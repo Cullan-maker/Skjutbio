@@ -3,13 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AR Skjutsimulator - Flera Banor</title>
+    <title>AR Skjutsimulator - Helskärm</title>
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
             background-color: #000; overflow: hidden;
             display: flex; justify-content: center; align-items: center;
             font-family: sans-serif;
+        }
+        /* Fix för mobil helskärm - tvingar allt att hålla sig inom skärmen */
+        :fullscreen, ::backdrop {
+            background-color: #000;
         }
         .video-container { position: relative; width: 100%; height: 100%; }
         video { width: 100%; height: 100%; object-fit: cover; display: none; }
@@ -93,7 +97,7 @@
 <div id="overlay">
     <h1>Glock Simulator AR</h1>
     <p>1. Håll telefonen vågrätt (Landscape)<br>2. Rikta pistolen framåt</p>
-    <button onclick="initSimulator()">STARTA SIMULATOR</button>
+    <button onclick="initSimulator()">STARTA SIMULATOR I HELSKÄRM</button>
 </div>
 
 <div id="controls">
@@ -115,11 +119,11 @@
 <div id="flash"></div>
 <div id="status">Väntar på start...</div>
 
-<div class="video-container">
-    <video id="videoThreat" class="active" loop muted playsinline>
+<div class="video-container" id="videoContainer">
+    <video id="videoThreat" class="active" loop muted playsinline preload="auto">
         <source src="1000033793.mp4" type="video/mp4">
     </video>
-    <video id="videoFall" playsinline>
+    <video id="videoFall" playsinline preload="auto">
         <source src="1000033792.mp4" type="video/mp4">
     </video>
     <div id="target-man"></div>
@@ -139,12 +143,12 @@
         office: {
             threatVideo: "1000033793.mp4",
             fallVideo: "1000033792.mp4",
-            fallStartTime: 4.0 // Fallet börjar 4 sekunder in i videon
+            fallStartTime: 4.0
         },
         burglar: {
             threatVideo: "gemini_generated_video_d513bdd2.mp4",
             fallVideo: "1000033813.mp4",
-            fallStartTime: 0.0 // Fallet börjar direkt
+            fallStartTime: 0.0
         }
     };
     
@@ -154,16 +158,26 @@
     let offset = { x: 0, y: 0 };
     let sensitivity = 15;
 
+    // NY FUNKTION: Helskärmsläge
+    function openFullscreen() {
+        const elem = document.documentElement; // Väljer hela HTML-dokumentet
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) { /* Safari */
+            elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) { /* IE11 */
+            elem.msRequestFullscreen();
+        }
+    }
+
     // Funktion för att byta bana
     function changeLevel() {
         const selected = levelSelect.value;
         currentLevel = levels[selected];
         
-        // Byt videofiler
         vThreat.src = currentLevel.threatVideo;
         vFall.src = currentLevel.fallVideo;
         
-        // Återställ och spela upp
         resetGame();
     }
 
@@ -172,18 +186,26 @@
         vThreat.classList.add('active');
         vFall.classList.remove('active');
         
-        vThreat.play();
-        vFall.load(); // Förladdar den nya fall-videon
+        // Tvinga webbläsaren att ladda om filmerna vid banbyte
+        vThreat.load();
+        vFall.load();
+        
+        // Fånga eventuella fel om mobilen försöker blockera auto-play
+        vThreat.play().catch(e => console.log("Spelar upp video manuellt:", e));
         
         status.innerText = "Sikta och skjut!";
         status.style.color = "white";
     }
 
     async function initSimulator() {
+        // Aktivera helskärm direkt vid klick
+        openFullscreen();
+        
         document.getElementById('overlay').style.display = 'none';
         
-        // Säkerställ att rätt bana är inladdad från start
+        // Sätt rätt bana och tvinga igång filmen omedelbart efter knapptryck
         changeLevel(); 
+        vThreat.play();
         
         sight.style.display = 'block';
 
@@ -242,7 +264,6 @@
             vThreat.pause();
             
             vFall.classList.add('active');
-            // Använd rätt tidpunkt för fallet beroende på bana
             vFall.currentTime = currentLevel.fallStartTime; 
             vFall.play();
             
