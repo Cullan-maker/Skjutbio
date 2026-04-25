@@ -3,295 +3,189 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AR Skjutsimulator - v0.6</title>
+    <title>AR Simulator v0.7 - Mobile Fix</title>
     <style>
-        body, html {
-            margin: 0; padding: 0; width: 100%; height: 100%;
-            background-color: #000; overflow: hidden;
-            display: flex; justify-content: center; align-items: center;
-            font-family: sans-serif; cursor: none;
-        }
-        :fullscreen, ::backdrop { background-color: #000; }
-        .video-container { position: relative; width: 100%; height: 100%; z-index: 1; }
-        
-        video { 
-            width: 100%; height: 100%; object-fit: cover; 
-            display: none; position: absolute; top: 0; left: 0;
-        }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
+        .video-container { position: relative; width: 100%; height: 100%; background: #111; }
+        video { width: 100%; height: 100%; object-fit: cover; display: none; position: absolute; top: 0; left: 0; }
         video.active { display: block; }
-        
-        /* --- UI-LAGER --- */
-        
-        /* Start-skärm - Nu med versionshistorik och banväljare */
+
+        /* Start-skärm */
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.95); z-index: 300;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            color: white; text-align: center; padding: 20px;
+            background: #000; z-index: 300; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; color: white; padding: 20px;
         }
-        #version-tag {
-            position: absolute; top: 10px; left: 10px;
-            color: #777; font-size: 12px; font-weight: bold;
-        }
-        button, select {
-            padding: 12px 24px; font-size: 16px; cursor: pointer;
-            border: none; border-radius: 5px; margin-top: 10px;
-        }
-        select { background: #333; color: white; width: 250px; }
-        .start-btn { background: #e74c3c; color: white; width: 250px; }
+        button, select { padding: 15px; font-size: 18px; margin: 10px; width: 280px; border-radius: 8px; border: none; }
+        .start-btn { background: #e74c3c; color: white; font-weight: bold; }
 
-        /* Kontrollpanel under play */
-        #controls {
-            position: absolute; top: 10px; right: 10px;
-            background: rgba(0,0,0,0.7); color: white; padding: 15px;
-            border-radius: 8px; z-index: 100; font-size: 14px;
-            width: 200px; display: none; cursor: default;
-        }
-
-        /* --- SIKTE --- */
+        /* Sikte */
         #sight-group {
-            position: absolute; pointer-events: none; z-index: 50;
-            top: 50%; left: 50%; transform: translate(-50%, -50%);
-            display: none;
+            position: absolute; z-index: 50; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); display: none; pointer-events: none;
         }
-        .rear-sight {
-            position: absolute; width: 100px; height: 50px;
-            background-color: #111; top: 0; left: -50px;
+        .rear-sight { position: absolute; width: 80px; height: 40px; background: #111; left: -40px; top: 0; }
+        .rear-sight-notch { 
+            position: absolute; width: 20px; height: 25px; left: 50%; bottom: 0;
+            transform: translateX(-50%); box-shadow: inset 0 0 0 100px #000;
         }
-        .rear-sight-notch {
-            position: absolute; width: 26px; height: 30px;
-            background-color: transparent; bottom: 0; left: 50%;
-            transform: translateX(-50%);
-            box-shadow: 0 10px 0 10px transparent, inset 0 0 0 100px #000;
-        }
-        .rear-sight-notch::before {
-            content: ''; position: absolute; width: 30px; height: 32px;
-            border: 4px solid #eee; border-top: none;
-            bottom: -4px; left: 50%; transform: translateX(-50%);
-            border-radius: 0 0 5px 5px;
-        }
-        .front-sight {
-            position: absolute; width: 20px; height: 55px;
-            background-color: #1a1a1a; bottom: 0; left: -10px;
-        }
-        .front-sight-dot {
-            position: absolute; width: 10px; height: 10px;
-            background-color: #eee; border-radius: 50%;
-            top: 8px; left: 50%; transform: translateX(-50%);
-        }
+        .front-sight { position: absolute; width: 16px; height: 45px; background: #222; left: -8px; bottom: 0; }
+        .front-sight-dot { position: absolute; width: 8px; height: 8px; background: #fff; border-radius: 50%; top: 5px; left: 4px; }
 
-        /* --- MÅL & EFFEKTER --- */
-        #target-man {
-            position: absolute; width: 25%; height: 60%;
-            top: 20%; left: 37.5%; z-index: 5;
-            /* border: 2px solid lime; /* Ta bort kommentar för att se målet */
+        /* Logg för felsökning på mobil */
+        #debug-log {
+            position: absolute; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.5);
+            color: lime; font-size: 10px; z-index: 400; pointer-events: none; padding: 5px;
         }
-        #flash {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: white; opacity: 0; pointer-events: none;
-            z-index: 60;
-        }
-        #status {
-            position: absolute; bottom: 20px; left: 50%;
-            transform: translateX(-50%); color: white; font-size: 20px;
-            z-index: 100; text-shadow: 2px 2px 4px black;
-            text-align: center;
-        }
+        #controls { position: absolute; bottom: 10px; right: 10px; z-index: 100; display: none; }
+        #flash { position: absolute; width: 100%; height: 100%; background: #fff; opacity: 0; z-index: 200; pointer-events: none; }
     </style>
 </head>
 <body>
 
-<div id="version-tag">AR SIM v0.6</div>
+<div id="debug-log">Log: Väntar på start...</div>
+<div id="version-tag" style="position:absolute; bottom:5px; left:5px; color:#444; font-size:10px; z-index:500;">v0.7</div>
 
 <div id="overlay">
-    <h1>Glock Simulator AR</h1>
-    <p>1. Håll telefonen vågrätt (Landscape)<br>2. Rikta pistolen framåt och välj scenario</p>
-    
+    <h2>GLOCK AR SIMULATOR</h2>
+    <p>Håll mobilen i Landskapsläge</p>
     <select id="levelSelect">
-        <option value="office">Scenario 1: Kontoret</option>
-        <option value="burglar">Scenario 2: Inbrottet</option>
+        <option value="office">Scenario: Kontoret</option>
+        <option value="burglar">Scenario: Inbrottet</option>
     </select>
-    <br>
-    <button class="start-btn" onclick="initSimulator()">STARTA SIMULATOR</button>
+    <button class="start-btn" onclick="initSimulator()">STARTA & TILLÅT SENSORER</button>
 </div>
 
 <div id="controls">
-    Trigger (Mic): <input type="range" id="threshold" min="0" max="255" value="120" style="width: 100%;"><br>
-    <button onclick="calibrate()" style="width: 100%; background: #333; margin-top: 5px;">KALIBRERA SIKTE</button>
+    <button onclick="calibrate()" style="width: auto; font-size: 12px; background: #333; color: white;">KALIBRERA</button>
 </div>
+
+<div id="flash"></div>
 
 <div id="sight-group">
     <div class="rear-sight"><div class="rear-sight-notch"></div></div>
     <div class="front-sight"><div class="front-sight-dot"></div></div>
 </div>
 
-<div id="flash"></div>
-<div id="status">Väntar på start...</div>
-
-<div class="video-container" id="gameArea">
+<div class="video-container">
     <video id="videoThreat" class="active" loop muted playsinline preload="auto"></video>
     <video id="videoFall" muted playsinline preload="auto"></video>
-    
-    <div id="target-man"></div>
+    <div id="target-man" style="position:absolute; width:20%; height:50%; top:25%; left:40%; z-index:10;"></div>
 </div>
 
 <script>
+    const log = (msg) => { document.getElementById('debug-log').innerText += "\n> " + msg; };
     const vThreat = document.getElementById('videoThreat');
     const vFall = document.getElementById('videoFall');
     const sight = document.getElementById('sight-group');
-    const status = document.getElementById('status');
-    const flash = document.getElementById('flash');
-    const threshold = document.getElementById('threshold');
-    const levelSelect = document.getElementById('levelSelect');
-    const controls = document.getElementById('controls');
     
-    // Scenario-konfiguration
     const scenarios = {
-        office: { threat: "1000033793.mp4", fall: "1000033792.mp4", fallStart: 4.0 },
-        burglar: { threat: "gemini_generated_video_d513bdd2.mp4", fall: "1000033813.mp4", fallStart: 0.0 }
+        office: { t: "1000033793.mp4", f: "1000033792.mp4", s: 4.0 },
+        burglar: { t: "gemini_generated_video_d513bdd2.mp4", f: "1000033813.mp4", s: 0.0 }
     };
-    
-    let currentScenario = scenarios.office;
-    let hasShot = false;
-    let isAcousticMuted = false; // Fixar flashing-problemet
-    let gyro = { x: 0, y: 0 };
-    let offset = { x: 0, y: 0 };
-    let sensitivity = 15;
 
-    function openFullscreen() {
-        const elem = document.documentElement;
-        if (elem.requestFullscreen) elem.requestFullscreen();
-        else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
-    }
+    let hasShot = false;
+    let offset = { x: 0, y: 0 };
+    let curGyro = { x: 0, y: 0 };
 
     async function initSimulator() {
-        openFullscreen();
-        document.getElementById('overlay').style.display = 'none';
-        controls.style.display = 'block';
+        log("Initierar...");
         
-        // Sätt Scenario baserat på val FÖRE start
-        currentScenario = scenarios[levelSelect.value];
-        vThreat.src = currentScenario.threat;
-        vFall.src = currentScenario.fall;
-        
-        // Förbered filmer
+        // 1. Fullscreen
+        try {
+            if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+            else if (document.documentElement.webkitRequestFullscreen) document.documentElement.webkitRequestFullscreen();
+            log("Fullscreen OK");
+        } catch(e) { log("FS Fel: " + e.message); }
+
+        // 2. Video
+        const sc = scenarios[document.getElementById('levelSelect').value];
+        vThreat.src = sc.t;
+        vFall.src = sc.f;
         vThreat.load();
         vFall.load();
         
-        // Tvinga igång film direkt vid interaktion för att slippa svart skärm
-        vThreat.play().then(() => {
-             status.innerText = "Sikta och skjut!";
-        }).catch(e => {
-             status.innerText = "Klicka på skärmen för att starta video!";
-             window.addEventListener('click', () => { vThreat.play(); status.innerText = "Sikta och skjut!"; }, {once: true});
-        });
-        
-        sight.style.display = 'block';
-        startAudio(); // Starta mikrofon
+        vThreat.play().then(() => log("Video spelar")).catch(e => log("Video Fel: " + e.message));
 
-        // Gyro
-        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            const permission = await DeviceOrientationEvent.requestPermission();
-            if (permission === 'granted') window.addEventListener('deviceorientation', handleOrientation);
+        // 3. Gyro-tillåtelse (Kritisk för iOS)
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            try {
+                const response = await DeviceOrientationEvent.requestPermission();
+                if (response === 'granted') {
+                    window.addEventListener('deviceorientation', (e) => {
+                        curGyro.x = e.gamma; curGyro.y = e.beta;
+                        updateSight();
+                    });
+                    log("Gyro OK (iOS)");
+                }
+            } catch (e) { log("Gyro Fel: " + e.message); }
         } else {
-            window.addEventListener('deviceorientation', handleOrientation);
+            window.addEventListener('deviceorientation', (e) => {
+                curGyro.x = e.gamma; curGyro.y = e.beta;
+                updateSight();
+            });
+            log("Gyro OK (Android/PC)");
         }
-    }
 
-    function handleOrientation(event) {
-        gyro.x = event.gamma; gyro.y = event.beta; 
-        updateSight();
-    }
-
-    function calibrate() {
-        offset.x = gyro.x; offset.y = gyro.y;
-        status.innerText = "Sikte nollställt!";
-        setTimeout(() => { if(!hasShot) status.innerText = "Sikta och skjut!"; }, 1500);
-    }
-
-    function updateSight() {
-        if (hasShot) return; // Frys siktet vid skott
-        let posX = (window.innerWidth / 2) + (gyro.x - offset.x) * sensitivity;
-        let posY = (window.innerHeight / 2) + (gyro.y - offset.y) * sensitivity;
-        sight.style.left = posX + 'px'; sight.style.top = posY + 'px';
-        window.lastShotPos = { x: posX, y: posY }; // Spara för träffkoll
-    }
-
-    function fire() {
-        if (hasShot) return; // Ingen dubbelavfyrning
-        hasShot = true;
-        isAcousticMuted = true; // Fixar flashing: Mutea ljudmätare direkt!
-
-        // Blixt
-        flash.style.opacity = 1;
-        setTimeout(() => flash.style.opacity = 0, 50);
-
-        const target = document.getElementById('target-man').getBoundingClientRect();
-        const p = window.lastShotPos || {x: window.innerWidth/2, y: window.innerHeight/2};
-
-        // Kolla TRÄFF/BOM
-        if (p.x > target.left && p.x < target.right && p.y > target.top && p.y < target.bottom) {
-            
-            // --- TRÄFF (Speciell Resultat-logik) ---
-            
-            // 1. Pausa Hotet EXAKT där man sköt, men dölj den inte helt
-            vThreat.pause(); 
-            vThreat.style.zIndex = "1"; // Flytta bak
-            
-            // 2. Flytta siktet bakom fall-videon
-            sight.style.zIndex = "5"; 
-            
-            // 3. Spela Fall-videon överst
-            vFall.classList.add('active');
-            vFall.style.zIndex = "10";
-            vFall.currentTime = currentScenario.fallStart;
-            vFall.play();
-            
-            status.innerText = "TRÄFF!";
-            status.style.color = "lime";
-            controls.style.display = 'none';
-
-            // 4. Visa Resultatet när Fallet är slut
-            vFall.onended = function() {
-                vFall.classList.remove('active'); // Dölj fall-video
-                
-                // Visa Hot-videons frysta ram
-                vThreat.style.zIndex = "10"; 
-                vThreat.style.display = "block"; 
-                
-                // Ta fram det frysta siktet över träffpunkten
-                sight.style.zIndex = "100"; 
-                
-                status.innerHTML = "RESULTAT: Här träffade du!<br>Uppdatera sidan för att spela igen.";
-                status.style.color = "white";
-            };
-
-        } else {
-            // --- BOM ---
-            status.innerText = "BOM!"; status.style.color = "red";
-            sight.style.display = "none";
-            setTimeout(() => { if(!hasShot) { status.style.color = "white"; status.innerText = "BOM! Uppdatera för nytt försök"; } }, 1000);
-        }
-    }
-
-    function startAudio() {
+        // 4. Mikrofon
         navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            log("Mic OK");
             const ctx = new AudioContext();
             const src = ctx.createMediaStreamSource(stream);
             const ana = ctx.createAnalyser();
             src.connect(ana);
             const data = new Uint8Array(ana.frequencyBinCount);
-            function loop() {
-                if (isAcousticMuted) { ctx.close(); return; } // Stoppa loop när muteas
+            const check = () => {
+                if (hasShot) return;
                 ana.getByteFrequencyData(data);
-                let vol = Math.max(...data);
-                if (vol > threshold.value) fire();
-                requestAnimationFrame(loop);
-            }
-            loop();
-        });
+                if (Math.max(...data) > 120) fire();
+                requestAnimationFrame(check);
+            };
+            check();
+        }).catch(e => log("Mic Fel: " + e.message));
+
+        document.getElementById('overlay').style.display = 'none';
+        document.getElementById('controls').style.display = 'block';
+        sight.style.display = 'block';
+    }
+
+    function updateSight() {
+        if (hasShot) return;
+        let x = (window.innerWidth / 2) + (curGyro.x - offset.x) * 15;
+        let y = (window.innerHeight / 2) + (curGyro.y - offset.y) * 15;
+        sight.style.left = x + 'px';
+        sight.style.top = y + 'px';
+        window.lastPos = { x, y };
+    }
+
+    function calibrate() {
+        offset.x = curGyro.x;
+        offset.y = curGyro.y;
+        log("Kalibrerad");
+    }
+
+    function fire() {
+        if (hasShot) return;
+        hasShot = true;
+        log("SKOTT!");
+        
+        document.getElementById('flash').style.opacity = 1;
+        setTimeout(() => document.getElementById('flash').style.opacity = 0, 50);
+
+        const target = document.getElementById('target-man').getBoundingClientRect();
+        const p = window.lastPos || { x: window.innerWidth/2, y: window.innerHeight/2 };
+
+        if (p.x > target.left && p.x < target.right && p.y > target.top && p.y < target.bottom) {
+            vThreat.pause();
+            vFall.classList.add('active');
+            vFall.currentTime = scenarios[document.getElementById('levelSelect').value].s;
+            vFall.play();
+            log("TRÄFF");
+        } else {
+            log("BOM");
+            setTimeout(() => { hasShot = false; log("Ladda om..."); }, 1000);
+        }
     }
 </script>
-
 </body>
 </html>
