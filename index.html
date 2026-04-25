@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AR Simulator v0.9 - Ljud & Fil-fix</title>
+    <title>AR Simulator v1.1 - Exakta Filnamn</title>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; cursor: none; }
-        :fullscreen, ::backdrop { background-color: #000; }
-        .video-container { position: relative; width: 100%; height: 100%; z-index: 1; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
+        .video-container { position: relative; width: 100%; height: 100%; background: #111; }
         video { width: 100%; height: 100%; object-fit: cover; display: none; position: absolute; top: 0; left: 0; }
         video.active { display: block; }
         
@@ -30,29 +29,29 @@
         .front-sight { position: absolute; width: 16px; height: 45px; background: #222; left: -8px; bottom: 0; }
         .front-sight-dot { position: absolute; width: 8px; height: 8px; background: #fff; border-radius: 50%; top: 5px; left: 4px; }
 
-        /* Ljudmätare (VU) under spel */
-        #audio-debug {
-            position: absolute; top: 10px; left: 10px; width: 150px; height: 20px;
-            background: rgba(255,255,255,0.2); z-index: 400; border-radius: 10px; overflow: hidden; display: none;
+        /* Felsökningspanel */
+        #debug-panel {
+            position: absolute; top: 10px; left: 10px; width: 200px;
+            background: rgba(0,0,0,0.8); z-index: 400; padding: 10px; border-radius: 10px; color: lime; font-size: 11px;
         }
-        #vu-bar { width: 0%; height: 100%; background: lime; transition: width 0.05s; }
+        #vu-meter { width: 100%; height: 12px; background: #333; border-radius: 6px; margin: 5px 0; overflow: hidden; }
+        #vu-bar { width: 0%; height: 100%; background: lime; }
 
-        /* Kontroller */
         #controls { position: absolute; bottom: 10px; right: 10px; z-index: 100; display: none; }
         #flash { position: absolute; width: 100%; height: 100%; background: #fff; opacity: 0; z-index: 200; pointer-events: none; }
-        #debug-log { position: absolute; top: 35px; left: 10px; color: lime; font-size: 10px; z-index: 400; pointer-events: none; }
     </style>
 </head>
 <body>
 
-<div id="version-tag" style="position:absolute; bottom:5px; left:5px; color:#444; font-size:10px; z-index:500;">v0.9</div>
-
-<div id="audio-debug"><div id="vu-bar"></div></div>
-<div id="debug-log"></div>
+<div id="debug-panel">
+    Ljudnivå:
+    <div id="vu-meter"><div id="vu-bar"></div></div>
+    <div id="status-log">Väntar på start...</div>
+    <button onclick="resumeAudio()" style="width:100%; font-size:10px; padding:5px; margin:5px 0;">TVINGA IGÅNG LJUD</button>
+</div>
 
 <div id="overlay">
-    <h2>GLOCK AR SIMULATOR</h2>
-    <p>Scenario-val</p>
+    <h2>GLOCK AR SIMULATOR v1.1</h2>
     <select id="levelSelect">
         <option value="office">Scenario: Kontoret</option>
         <option value="burglar">Scenario: Inbrottet</option>
@@ -61,7 +60,7 @@
 </div>
 
 <div id="controls">
-    <button onclick="calibrate()" style="background: #333; color: white; padding: 10px;">KALIBRERA</button>
+    <button onclick="calibrate()" style="background: #333; color: white; padding: 10px;">KALIBRERA SIKTE</button>
 </div>
 
 <div id="flash"></div>
@@ -74,18 +73,18 @@
 <div class="video-container">
     <video id="videoThreat" class="active" loop muted playsinline preload="auto"></video>
     <video id="videoFall" muted playsinline preload="auto"></video>
-    <div id="target-man" style="position:absolute; width:20%; height:50%; top:25%; left:40%; z-index:10;"></div>
+    <div id="target-man" style="position:absolute; width:25%; height:60%; top:20%; left:37.5%; z-index:10;"></div>
 </div>
 
 <script>
     // =========================================================================
-    // ⚙️ FILNAMN FRÅN GEMINI - KONTROLLERA ATT DESSA STÄMMER PÅ GITHUB
+    // ⚙️ FILNAMN - EXAKT MATCHANDE DINA BILDER
     // =========================================================================
     const FILER = {
-        office_hot: "1000033793.mp4",
-        office_fall: "1000033792.mp4",
+        office_hot: "gemini_generated_video_0d52a464.mp4",
+        office_fall: "gemini_generated_video_160ee669.mp4",
         burglar_hot: "gemini_generated_video_d513bdd2.mp4",
-        burglar_fall: "1000033813.mp4"
+        burglar_fall: "gemini_generated_video_4086abb1.mp4"
     };
     // =========================================================================
 
@@ -93,9 +92,7 @@
     const vFall = document.getElementById('videoFall');
     const sight = document.getElementById('sight-group');
     const vuBar = document.getElementById('vu-bar');
-    const logElem = document.getElementById('debug-log');
-
-    function writeLog(msg) { logElem.innerText = msg; }
+    const statusLog = document.getElementById('status-log');
 
     const scenarios = {
         office: { t: FILER.office_hot, f: FILER.office_fall, s: 4.0 },
@@ -105,13 +102,15 @@
     let hasShot = false;
     let offset = { x: 0, y: 0 };
     let curGyro = { x: 0, y: 0 };
-    let audioCtx;
+    let audioCtx, analyser, dataArray;
 
     async function initSimulator() {
-        // Helskärm
-        const elem = document.documentElement;
-        if (elem.requestFullscreen) elem.requestFullscreen();
-        else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+        // Försök starta helskärm
+        try {
+            const elem = document.documentElement;
+            if (elem.requestFullscreen) elem.requestFullscreen();
+            else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+        } catch(e) {}
 
         // Ladda scenario
         const sc = scenarios[document.getElementById('levelSelect').value];
@@ -119,7 +118,7 @@
         vFall.src = sc.f;
         vThreat.load(); vFall.load();
         
-        vThreat.play().catch(e => writeLog("Video-fel! Kolla filnamn på GitHub."));
+        vThreat.play().catch(() => statusLog.innerText = "FEL: Hittade inte videofilen!");
 
         // Gyro
         if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -129,42 +128,52 @@
             window.addEventListener('deviceorientation', e => { curGyro.x = e.gamma; curGyro.y = e.beta; updateSight(); });
         }
 
-        // Mikrofon & VU-mätare
-        startAudio();
+        // Mikrofon
+        setupAudio();
 
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('controls').style.display = 'block';
-        document.getElementById('audio-debug').style.display = 'block';
         sight.style.display = 'block';
     }
 
-    function startAudio() {
+    function setupAudio() {
         navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
             const src = audioCtx.createMediaStreamSource(stream);
-            const ana = audioCtx.createAnalyser();
-            ana.fftSize = 256;
-            src.connect(ana);
-            const data = new Uint8Array(ana.frequencyBinCount);
+            analyser.fftSize = 256;
+            src.connect(analyser);
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            statusLog.innerText = "Ljud: Lyssnar...";
             
             const check = () => {
                 if (hasShot) return;
-                ana.getByteFrequencyData(data);
-                let vol = Math.max(...data);
-                
-                // Uppdatera mätaren så du ser om den hör dig
+                analyser.getByteFrequencyData(dataArray);
+                let vol = Math.max(...dataArray);
                 vuBar.style.width = (vol / 255) * 100 + "%";
 
-                // Om ljudet är högre än 70 (sänkt från 120 för bättre respons)
-                if (vol > 70) fire();
+                // Om volymen går över tröskelvärdet (Trigger satt till 80)
+                if (vol > 80) fire(); 
                 requestAnimationFrame(check);
             };
             check();
+        }).catch(e => {
+            statusLog.innerText = "Ljud-fel: Mikrofon nekad!";
         });
+    }
+
+    function resumeAudio() {
+        if (audioCtx) {
+            audioCtx.resume();
+            statusLog.innerText = "Ljud: Återställt!";
+        } else {
+            setupAudio();
+        }
     }
 
     function updateSight() {
         if (hasShot) return;
+        // Sensitivity 15
         let x = (window.innerWidth / 2) + (curGyro.x - offset.x) * 15;
         let y = (window.innerHeight / 2) + (curGyro.y - offset.y) * 15;
         sight.style.left = x + 'px';
@@ -175,7 +184,8 @@
     function calibrate() {
         offset.x = curGyro.x;
         offset.y = curGyro.y;
-        if(audioCtx) audioCtx.resume(); // Säkerställ att ljudet är igång
+        if(audioCtx) audioCtx.resume();
+        statusLog.innerText = "Sikte kalibrerat!";
     }
 
     function fire() {
@@ -193,8 +203,10 @@
             vFall.classList.add('active');
             vFall.currentTime = scenarios[document.getElementById('levelSelect').value].s;
             vFall.play();
+            statusLog.innerText = "TRÄFF!";
         } else {
-            setTimeout(() => { hasShot = false; }, 1000);
+            statusLog.innerText = "BOM!";
+            setTimeout(() => { hasShot = false; statusLog.innerText = "Ladda om..."; }, 1000);
         }
     }
 </script>
